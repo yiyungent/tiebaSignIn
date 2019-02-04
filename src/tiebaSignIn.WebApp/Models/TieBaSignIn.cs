@@ -17,8 +17,16 @@ namespace tiebaSignIn.WebApp.Models
     {
         public static string MobileUserAgent = "Mozilla/5.0 (Linux; U; Android 8.1.0; zh-cn; BLA-AL00 Build/HUAWEIBLA-AL00) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/57.0.2987.132 MQQBrowser/8.9 Mobile Safari/537.36";
 
+        public static string PCUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36";
+
         #region 签到指定的贴吧（需关注此贴吧）
-        public SignInResult SignIn(string tiebaName, Dictionary<string, string> cookies)
+        /// <summary>
+        /// 签到指定的贴吧（需关注此贴吧）
+        /// </summary>
+        /// <param name="kw">贴吧名(kw)，内部会对其进行UrlEncode</param>
+        /// <param name="cookies"></param>
+        /// <returns></returns>
+        public SignInResult SignIn(string kw, Dictionary<string, string> cookies)
         {
             return new SignInResult();
         }
@@ -39,11 +47,15 @@ namespace tiebaSignIn.WebApp.Models
             {
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "POST";
-                if (cookies != null & cookies.Count > 0)
+                if (cookies != null && cookies.Count > 0)
                 {
+                    // 注意：一定要先 new CookieContainer() ，它默认为 null
+                    request.CookieContainer = new CookieContainer();
+                    Uri target = new Uri(url);
                     foreach (string name in cookies.Keys)
                     {
-                        request.CookieContainer.Add(new Cookie(name, cookies[name]));
+                        // 注意：Domain属性必须提供
+                        request.CookieContainer.Add(new Cookie(name, cookies[name]) { Domain = target.Host });
                     }
                 }
                 if (userAgent != null)
@@ -138,6 +150,7 @@ namespace tiebaSignIn.WebApp.Models
                 {
                     sb.Append("&" + key + "=" + postDataDic[key]);
                 }
+                isFirst = false;
             }
             string postDataStr = sb.ToString();
             return HttpPost(url: url, postDataStr: postDataStr, cookies: cookies, userAgent: userAgent, referer: referer, contentType: contentType, headers: headers);
@@ -152,11 +165,13 @@ namespace tiebaSignIn.WebApp.Models
             {
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "GET";
-                if (cookies != null & cookies.Count > 0)
+                if (cookies != null && cookies.Count > 0)
                 {
+                    request.CookieContainer = new CookieContainer();
+                    Uri target = new Uri(url);
                     foreach (string name in cookies.Keys)
                     {
-                        request.CookieContainer.Add(new Cookie(name, cookies[name]));
+                        request.CookieContainer.Add(new Cookie(name, cookies[name]) { Domain = target.Host });
                     }
                 }
                 if (userAgent != null)
@@ -269,7 +284,7 @@ namespace tiebaSignIn.WebApp.Models
         {
             Dictionary<string, string> cookies = new Dictionary<string, string>();
             cookies.Add("BDUSS", bduss);
-            string userAgent = MobileUserAgent;
+            string userAgent = PCUserAgent;
             Random r = new Random();
             string[] headers = { "X-Forwarded-For: 115.28.1." + r.Next(1, 255) };
             string responseData = HttpGet(url: "http://tieba.baidu.com/dc/common/tbs", cookies: cookies, userAgent: userAgent, referer: "http://tieba.baidu.com/", headers: headers.ToList());
@@ -357,7 +372,7 @@ namespace tiebaSignIn.WebApp.Models
         {
             string responseData = string.Empty;
             string url = "http://tieba.baidu.com/mo/q/sign?tbs=" + GetTbs(bduss) + "&kw=" + HttpUtility.UrlEncode(kw) + "&is_like=1&fid=" + fid;
-            string userAgent = MobileUserAgent;
+            string userAgent = PCUserAgent;
             string referer = "http://tieba.baidu.com/f?kw=" + kw;
             string[] headers = {
                 "X-Forwarded-For: 115.28.1." + (new Random()).Next(1, 255),
@@ -375,9 +390,10 @@ namespace tiebaSignIn.WebApp.Models
         }
         #endregion
 
-        #region 网页签到
+        #region 网页签到(WAP版)
+        // 测试未通过：在真机PC上可以获取到有效的签到超链接，但是抓包内的签到超链接不一致，请求后跳转到贴吧首页，签到无效
         /// <summary>
-        /// 网页签到
+        /// 网页签到(WAP版)
         /// </summary>
         /// <param name="kw"></param>
         /// <param name="fid"></param>
@@ -389,35 +405,80 @@ namespace tiebaSignIn.WebApp.Models
             cookies.Add("BDUSS", bduss);
             cookies.Add("BAIDUID", MD5Encrypt32(GetTimeStamp()).ToUpper());
             string url = "http://tieba.baidu.com/mo/m?kw=" + HttpUtility.UrlEncode(kw) + "&fid=" + fid;
-            string userAgent = MobileUserAgent;
+            string userAgent = PCUserAgent;
             string referer = "http://wapp.baidu.com/";
             string contentType = "application/x-www-form-urlencoded";
 
             string tempResData = HttpGet(url: url, cookies: cookies, userAgent: userAgent, referer: referer, contentType: contentType);
             string pattern = "<td style=\"text-align:right;\"><a href=\"(.*)\">签到</a></td></tr>";
-            string signInHrefValue = Regex.Match(tempResData, pattern).Groups[1].Value;
-            if (!string.IsNullOrEmpty(signInHrefValue))
+            Match match = Regex.Match(tempResData, pattern);
+            if (match.Success)
             {
+                // 签到按钮上的签到超链接
+                string signInHrefValue = Regex.Match(tempResData, pattern).Groups[1].Value;
+
+                #region 签到（模拟点击签到超链接）
                 url = "http://tieba.baidu.com" + signInHrefValue;
                 string[] headers = {
-                    "Accept: text/html, application/xhtml+xml, */*",
-                    "Accept-Language: zh-Hans-CN,zh-Hans;q=0.8,en-US;q=0.5,en;q=0.3"
-                };
+                        "Accept: text/html, application/xhtml+xml, */*",
+                        "Accept-Language: zh-Hans-CN,zh-Hans;q=0.8,en-US;q=0.5,en;q=0.3"
+                    };
                 tempResData = HttpGet(url: url, cookies: cookies, userAgent: userAgent, headers: headers.ToList());
+                #endregion
+
+                #region 判断是否签到
                 // 临时判断解决方案
                 url = "http://tieba.baidu.com/mo/m?kw=" + HttpUtility.HtmlEncode(kw) + "&fid=" + fid;
-                referer = "http://wapp.baidu.com/";
-                contentType = "application/x-www-form-urlencoded";
                 tempResData = HttpGet(url: url, cookies: cookies, userAgent: userAgent, referer: referer, contentType: contentType);
-                pattern = "<td style=\"text - align:right;\"><span >已签到</span></td>";
+                pattern = "<td style=\"text-align:right;\"><span >已签到</span></td>";
                 // 如果 找不到这段html 则表示 没有签到 则 返回false
                 bool isSignIned = Regex.Match(tempResData, pattern).Success;
                 return isSignIned;
+                #endregion
             }
             else
             {
                 // 找不到签到按钮说明 已经 签到
                 return true;
+            }
+        }
+        #endregion
+
+        #region 网页签到(PC)
+        // 测试通过
+        /// <summary>
+        /// 网页签到(PC)
+        /// </summary>
+        /// <param name="kw"></param>
+        /// <param name="bduss"></param>
+        /// <returns></returns>
+        public SignInResult DoSign_PCWeb(string kw, string bduss)
+        {
+            string url = "http://tieba.baidu.com/sign/add";
+            Dictionary<string, string> postDataDic = new Dictionary<string, string>();
+            postDataDic.Add("ie", "utf-8");
+            postDataDic.Add("kw", HttpUtility.HtmlEncode(kw));
+            // 实测：百度并未检查 tbs，虽然每个贴吧html都有个tbs，但实测就这样也行
+            postDataDic.Add("tbs", "36be79d0dccaa4ea1549281778");
+            string userAgent = PCUserAgent;
+            Dictionary<string, string> cookies = new Dictionary<string, string>();
+            cookies.Add("BDUSS", bduss);
+            string responseJson = HttpPost(url: url, postDataDic: postDataDic, cookies: cookies, userAgent: userAgent);
+            dynamic jsonObj = JsonStr2Obj(responseJson);
+            if (jsonObj.no.ToString() == "1101")
+            {
+                // 此贴吧已经签到过
+                return new SignInResult { Code = SignInCode.SignIned, Message = "此贴吧已经签到过了" };
+            }
+            else if (jsonObj.error.ToString() == "" || jsonObj.no.ToString() == "0")
+            {
+                // 签到成功
+                return new SignInResult { Code = SignInCode.Success, Message = "签到成功" };
+            }
+            else
+            {
+                // 签到失败
+                return new SignInResult { Code = SignInCode.Failure, Message = Unicode2String(jsonObj.error.ToString()) };
             }
         }
         #endregion
@@ -462,6 +523,34 @@ namespace tiebaSignIn.WebApp.Models
         public static dynamic JsonStr2Obj(string jsonStr)
         {
             return JsonConvert.DeserializeObject<dynamic>(jsonStr);
+        }
+        #endregion
+
+        #region Unicode编码
+        /// <summary>
+        /// 字符串转Unicode
+        /// </summary>
+        /// <param name="source">源字符串</param>
+        /// <returns>Unicode编码后的字符串</returns>
+        internal static string String2Unicode(string source)
+        {
+            var bytes = Encoding.Unicode.GetBytes(source);
+            var stringBuilder = new StringBuilder();
+            for (var i = 0; i < bytes.Length; i += 2)
+            {
+                stringBuilder.AppendFormat("\\u{0}{1}", bytes[i + 1].ToString("x").PadLeft(2, '0'), bytes[i].ToString("x").PadLeft(2, '0'));
+            }
+            return stringBuilder.ToString();
+        }
+
+        /// <summary>
+        /// Unicode转字符串
+        /// </summary>
+        /// <param name="source">经过Unicode编码的字符串</param>
+        /// <returns>正常字符串</returns>
+        internal static string Unicode2String(string source)
+        {
+            return new Regex(@"\\u([0-9A-F]{4})", RegexOptions.IgnoreCase | RegexOptions.Compiled).Replace(source, x => Convert.ToChar(Convert.ToUInt16(x.Result("$1"), 16)).ToString());
         }
         #endregion
     }
