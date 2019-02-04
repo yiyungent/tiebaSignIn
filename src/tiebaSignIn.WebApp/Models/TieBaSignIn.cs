@@ -394,7 +394,7 @@ namespace tiebaSignIn.WebApp.Models
             string contentType = "application/x-www-form-urlencoded";
 
             string tempResData = HttpGet(url: url, cookies: cookies, userAgent: userAgent, referer: referer, contentType: contentType);
-            string pattern = "<td style=\"text - align:right;\"><a href=\"(.*)\">签到</a></td></tr>";
+            string pattern = "<td style=\"text-align:right;\"><a href=\"(.*)\">签到</a></td></tr>";
             string signInHrefValue = Regex.Match(tempResData, pattern).Groups[1].Value;
             if (!string.IsNullOrEmpty(signInHrefValue))
             {
