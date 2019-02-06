@@ -10,6 +10,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace tiebaSignIn.WebApp.Models
 {
@@ -543,6 +544,115 @@ namespace tiebaSignIn.WebApp.Models
         }
         #endregion
 
+        #region 客户端签到
+        public string DoSign_Client(string kw, string fid, string bduss)
+        {
+            string url = "http://c.tieba.baidu.com/c/c/forum/sign";
+            string contentType = "application/x-www-form-urlencoded";
+            string userAgent = MobileUserAgent;
+            Dictionary<string, string> cookies = new Dictionary<string, string>();
+            cookies.Add("BDUSS", bduss);
+
+            Dictionary<string, string> postDataDic = new Dictionary<string, string>();
+            postDataDic.Add("BDUSS", bduss);
+            postDataDic.Add("_client_id", "03-00-DA-59-05-00-72-96-06-00-01-00-04-00-4C-43-01-00-34-F4-02-00-BC-25-09-00-4E-36");
+            postDataDic.Add("_client_type", "4");
+            postDataDic.Add("_client_version", "1.2.1.17");
+            postDataDic.Add("_phone_imei", "540b43b59d21b7a4824e1fd31b08e9a6");
+            postDataDic.Add("fid", fid);
+            postDataDic.Add("kw", kw);
+            postDataDic.Add("net_type", "3");
+            postDataDic.Add("tbs", GetTbs(bduss));
+
+            StringBuilder sb = new StringBuilder();
+            foreach (string key in postDataDic.Keys)
+            {
+                sb.Append(key + "=" + postDataDic[key]);
+            }
+            postDataDic.Add("sign", MD5Encrypt32(sb.ToString() + "tiebaclient!!!").ToUpper());
+            string responseData = HttpPost(url: url, postDataDic: postDataDic, cookies: cookies, userAgent: userAgent, contentType: contentType);
+            return responseData;
+        }
+        #endregion
+
+        #region 登录百度
+        /// <summary>
+        /// 登录百度
+        /// </summary>
+        /// <param name="userName">百度用户名</param>
+        /// <param name="password">百度密码</param>
+        /// <param name="verifyCode">验证码</param>
+        /// <param name="vCodeStr">验证字符</param>
+        /// <returns>[0成功|-1网络请求失败|-2json解析失败|-3表示需要验证码或验证码错误|2表示登陆失败|其他为百度提供的错误代码, 成功为BDUSS|需要验证码则返回vcodestr|其他错误返回百度提供的错误信息, 如果登陆成功，返回百度用户名|如果需要验证码，则此处返回验证图片地址 ]</returns>
+        public dynamic LoginBaidu(string userName, string password, string verifyCode, string vCodeStr)
+        {
+            string url = "http://c.tieba.baidu.com/c/s/login";
+            Dictionary<string, string> postDataDic = new Dictionary<string, string>();
+            // 这里 原PHP 用的是base64_encode($bd_pw)，这里可能存在问题
+            postDataDic.Add("passwd", Convert.ToBase64String(Encoding.UTF8.GetBytes(password)));
+            postDataDic.Add("timestamp", GetTimeStamp() + "156");
+            postDataDic.Add("un", userName);
+
+            if (!string.IsNullOrEmpty(verifyCode) && !string.IsNullOrEmpty(vCodeStr))
+            {
+                postDataDic.Add("vcode", verifyCode);
+                postDataDic.Add("vcode_md5", vCodeStr);
+            }
+            postDataDic = AddTiebaSign(postDataDic);
+            string responseData = HttpPost(url: url, postDataDic: postDataDic);
+            if (string.IsNullOrEmpty(responseData)) return new { code = -1, message = "网络请求失败" };
+            dynamic jsonObj = JsonStr2Obj(responseData);
+            if (string.IsNullOrEmpty(jsonObj.ToString())) return new { code = -2, message = "json解析失败" };
+            string bduss = string.Empty;
+            if (IsPropertyExist(jsonObj, "user") && !string.IsNullOrEmpty(jsonObj.user.ToString()))
+            {
+                int md5Pos = jsonObj.user.BDUSS.ToString().IndexOf('|');
+                if (md5Pos >= 0)
+                {
+                    bduss = jsonObj.user.BDUSS.ToString().Substring(0, md5Pos);
+                }
+                else
+                {
+                    bduss = jsonObj.user.BDUSS.ToString();
+                }
+            }
+            if (jsonObj.error_code.ToString() == "0")
+            {
+                return new { code = 0, bduss = bduss, name = jsonObj.user.name.ToString() };
+            }
+            else
+            {
+                dynamic rtnResult = new JObject();
+                switch (jsonObj.error_code.ToString())
+                {
+                    case "5":
+                        rtnResult = new { code = -3, vcode_md5 = jsonObj.anti.vcode_md5, vcode_pic_url = jsonObj.anti.vcode_pic_url };
+                        break;
+                    case "6":
+                        rtnResult = new { code = -3, vcode_md5 = jsonObj.anti.vcode_md5, vcode_pic_url = jsonObj.anti.vcode_pic_url };
+                        break;
+                    default:
+                        rtnResult = new { code = jsonObj.error_code.ToString(), error_msg = jsonObj.error_msg };
+                        break;
+                }
+                return rtnResult;
+            }
+        }
+        #endregion
+
+        #region 指定的json对象是否存在某属性
+        public bool IsPropertyExist(dynamic data, string propertyname)
+        {
+            // 不能将 JObject (data) 转换成 IDictionary<string, object>
+            //IDictionary<string, object> dic = (IDictionary<string, object>)data;
+            if (data is JObject)
+            {
+                return ((JObject)data).ContainsKey(propertyname);
+            }
+            return false;
+        }
+        #endregion
+
         #region 返回 当前 Unix 时间戳（10位）
         /// <summary>
         /// 返回 当前 Unix 时间戳（10位）
@@ -582,7 +692,14 @@ namespace tiebaSignIn.WebApp.Models
         /// <returns></returns>
         public static dynamic JsonStr2Obj(string jsonStr)
         {
-            return JsonConvert.DeserializeObject<dynamic>(jsonStr);
+            try
+            {
+                return JsonConvert.DeserializeObject<dynamic>(jsonStr);
+            }
+            catch (Exception ex)
+            {
+                return "";
+            }
         }
         #endregion
 
