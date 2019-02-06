@@ -39,6 +39,44 @@ namespace tiebaSignIn.WebApp.Models
         }
         #endregion
 
+        #region 获取关注的贴吧名
+        /// <summary>
+        /// 根据指定用户 其关注的贴吧
+        /// </summary>
+        /// <param name="userName"></param>
+        /// <returns>返回关注的贴吧名（Unicode已被转换为中文字符串）</returns>
+        public List<string> GetFollowedTiebaNames(string userName)
+        {
+            string url = "http://tieba.baidu.com/home/main?un=" + HttpUtility.HtmlEncode(userName);
+            string responseData = HttpGet(url: url, userAgent: PCUserAgent);
+            string pattern = "\"forum_name\":\"(.*?)\"";
+            MatchCollection matchCollection = Regex.Matches(responseData, pattern);
+            List<string> tiebaNames = new List<string>();
+            string forum_name = string.Empty;
+            foreach (Match match in matchCollection)
+            {
+                forum_name = match.Groups[1].Value;
+                tiebaNames.Add(Unicode2String(forum_name));
+            }
+            return tiebaNames;
+        }
+
+        /// <summary>
+        /// 失败，自动跳转过多，因为重定向过多，似乎只有bduss不行，但测试完整cookie也不行
+        /// </summary>
+        /// <param name="bduss"></param>
+        /// <returns></returns>
+        public List<string> GetFollowedTiebaNamesByBduss(string bduss)
+        {
+            string url = "https://tieba.baidu.com/";
+            Dictionary<string, string> cookies = new Dictionary<string, string>();
+            cookies.Add("BDUSS", bduss);
+            string responseData = HttpGet(url: url, cookies: cookies, userAgent: PCUserAgent);
+            List<string> tiebaNames = new List<string>();
+            return tiebaNames;
+        }
+        #endregion
+
         #region Http POST
         public string HttpPost(string url, string postDataStr, Dictionary<string, string> cookies = null, string userAgent = null, string referer = null, string contentType = null, List<string> headers = null)
         {
@@ -158,7 +196,7 @@ namespace tiebaSignIn.WebApp.Models
         #endregion
 
         #region Http GET
-        public string HttpGet(string url, Dictionary<string, string> cookies = null, string userAgent = null, string referer = null, string contentType = null, List<string> headers = null)
+        public string HttpGet(string url, Dictionary<string, string> cookies = null, string userAgent = null, string referer = null, string contentType = null, List<string> headers = null, bool isFollowRedirect = true)
         {
             string rtnResult = string.Empty;
             try
@@ -228,7 +266,29 @@ namespace tiebaSignIn.WebApp.Models
                         }
                     }
                 }
+                request.MaximumAutomaticRedirections = 100;
+                // 不论是否允许自动跳转，都设置默认自带的实现自动跳转 为 false ，默认为true,默认最大次数为50
+                //request.AllowAutoRedirect = false;
                 HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+
+                #region 测试阶段
+                //string location = response.Headers["Location"];
+                //// 判断是否重定向  Ambiguous 300  Found 302  Moved 301
+                //while ((response.StatusCode == HttpStatusCode.Ambiguous || response.StatusCode == HttpStatusCode.Found || response.StatusCode == HttpStatusCode.Moved) && !string.IsNullOrEmpty(location))
+                //{
+                //    // 向现有的 Cookies 中追加 
+                //    if (request.CookieContainer == null)
+                //    {
+                //        request.CookieContainer = new CookieContainer();
+                //    }
+                //    foreach (Cookie cookie in response.Cookies)
+                //    {
+                //        request.CookieContainer.Add(cookie);
+                //    }
+                //    //request.Referer = url;
+                //} 
+                #endregion
+
                 Stream responseStream = response.GetResponseStream();
                 //如果http头中接受gzip的话，这里就要判断是否为有压缩，有的话，直接解压缩即可  
                 if (response.Headers["Content-Encoding"] != null && response.Headers["Content-Encoding"].ToLower().Contains("gzip"))
@@ -240,12 +300,12 @@ namespace tiebaSignIn.WebApp.Models
                     rtnResult = sReader.ReadToEnd();
                 }
                 responseStream.Close();
+                return rtnResult;
             }
             catch (Exception ex)
             {
                 throw ex;
             }
-            return rtnResult;
         }
         #endregion
 

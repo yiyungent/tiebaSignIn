@@ -77,12 +77,16 @@
     <Compile Include="Api\DoSign_PCWebDemo.ashx.cs">
       <DependentUpon>DoSign_PCWebDemo.ashx</DependentUpon>
     </Compile>
+    <Compile Include="Api\GetTiebaNames.ashx.cs">
+      <DependentUpon>GetTiebaNames.ashx</DependentUpon>
+    </Compile>
     <Compile Include="Models\SignInResult.cs" />
     <Compile Include="Models\TiebaSignIn.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Api\DoSign_PCWebDemo.ashx" />
+    <Content Include="Api\GetTiebaNames.ashx" />
     <None Include="packages.config" />
     <None Include="Properties\PublishProfiles\FolderProfile.pubxml" />
     <None Include="Web.Debug.config">
